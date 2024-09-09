@@ -1,0 +1,14 @@
+Python: Traceback (most recent call last):
+  File "/Applications/Blender.app/Contents/Resources/4.2/scripts/addons_core/bl_pkg/bl_extension_ops.py", line 1302, in execute
+    cmd_batch = self.exec_command_iter(is_modal)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Applications/Blender.app/Contents/Resources/4.2/scripts/addons_core/bl_pkg/bl_extension_ops.py", line 2338, in exec_command_iter
+    self.exec_legacy(source_filepath)
+  File "/Applications/Blender.app/Contents/Resources/4.2/scripts/addons_core/bl_pkg/bl_extension_ops.py", line 2465, in exec_legacy
+    bpy.types.PREFERENCES_OT_addon_install.execute(self, bpy.context)
+  File "/Applications/Blender.app/Contents/Resources/4.2/scripts/startup/bl_operators/userpref.py", line 780, in execute
+    bpy.ops.preferences.addon_enable(module=mod.__name__)
+  File "/Applications/Blender.app/Contents/Resources/4.2/scripts/modules/bpy/ops.py", line 109, in __call__
+    ret = _op_call(self.idname_py(), kw)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Error: invalid syntax (usdmanageraddon.py, line 3)
