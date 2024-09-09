@@ -52,12 +52,8 @@ def import_usd(filepath):
 # Function to edit USD hierarchy
 def edit_usd_hierarchy(filepath, asset_type):
     # Placeholder for editing USD hierarchy
-    # This should parse the USD file and modify the hierarchy based on asset_type
     print(f"Editing USD hierarchy in {filepath} as {asset_type}")
 
-    # Example of how you might modify the USD file
-    # This would require a USD library to parse and modify the file
-    # For now, this is a conceptual placeholder
     if asset_type == 'assembly':
         print("Setting asset as assembly")
     elif asset_type == 'group':
@@ -67,10 +63,7 @@ def edit_usd_hierarchy(filepath, asset_type):
     elif asset_type == 'subcomponent':
         print("Setting asset as subcomponent")
 
-    # Automatically recognize lights, curves, geo, materials
     print("Recognizing and categorizing elements in the USD file")
-    # This would involve parsing the USD file and categorizing elements
-    # For example, checking for lights, curves, geometry, and materials
 
 # Main function to organize and export assets
 def organize_and_export_assets(output_directory):
