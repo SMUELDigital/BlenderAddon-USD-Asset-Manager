@@ -3,17 +3,12 @@ bl_info = {
     "author": "SMUELDigital",
     "version": (1, 0),
     "blender": (4, 2, 0),
-    "location": "View3D > N",
+    "location": "PROPERTIES",
     "description": "Export and import USD files with custom functions",
     "warning": "",
     "doc_url": "",
     "category": "Object"
 }
-
-import bpy
-from bpy_extras.io_utils import ImportHelper
-import os
-
 # Function to create directory if it doesn't exist
 def create_directory(path):
     if not os.path.exists(path):
@@ -39,10 +34,10 @@ def import_usd(filepath):
 class OBJECT_OT_usd_manager_panel(bpy.types.Panel):
     """Creates a panel for the USD Asset Manager"""
     bl_label = "USD Asset Manager"
-    bl_idname = "VIEW3D_PT_usd_manager"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'N'
+    bl_idname = "USD_Manager"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_category = 'scene'
 
     def draw(self, context):
         layout = self.layout

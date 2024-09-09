@@ -1,0 +1,15 @@
+Plan for Addon (20240909)
+
+#Needed Features
+    -import and export (maybe referencing the existing usd import/export function)
+    -null (/_geo) for geometry base hierarchy for usd assets
+    -(/_materials) gets imported, but empty
+    -extra layers (cameras, curves)
+    -light layers (all lights)
+    -all assets are sorted in the some data structure and readable with other DCCs
+
+#Fazit:
+    Simplest way at the moment is that the user selects all assets
+    and the script sorts and tags the asset to a corresponding null object.
+    Or manually function that the user selects the object and defines the object class
+    and clicks the button to tag it.
