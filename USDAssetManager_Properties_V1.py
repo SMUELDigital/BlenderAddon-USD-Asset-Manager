@@ -25,7 +25,7 @@ class UsdExportButton(bpy.types.Operator):
         scene = context.scene
 
         # Get the USD file path and other settings from the panel
-        usd_file_path = bpy.path.abspath(scene.render.filepath) + ".usda"
+        usd_file_path = bpy.path.abspath(scene.render.filepath) + ".usd"
         texture_folder = os.path.join(bpy.path.abspath(scene.render.filepath), "textures")
 
         # Set up the exporter
@@ -60,7 +60,7 @@ class UsdImportButton(bpy.types.Operator):
         scene = context.scene
 
         # Get the USD file path and other settings from the panel
-        usd_file_path = bpy.path.abspath(scene.render.filepath) + ".usda"
+        usd_file_path = bpy.path.abspath(scene.render.filepath) + ".usd"
 
         # Set up the importer
         bpy.ops.wm.usd_import(
@@ -89,20 +89,15 @@ class USDManagerPanel(bpy.types.Panel):
 
         scene = context.scene
 
-
         # Different sizes in a row
-        layout.label(text="Different button sizes:")
+        layout.label(text="USD Asset Manager:")
         row = layout.row(align=True)
-        row.operator("render.render")
-
-        sub = row.row()
-        sub.scale_x = 2.0
-        sub.operator("render.render")
-
-        row = layout.row()
         row.operator("scene.usd_export")
         row.operator("scene.usd_import")
 
+        layout.label(text="Render Settings:")
+        row = layout.row(align=True)
+        row.operator("render.render")
 
 def register():
     bpy.utils.register_class(USDManagerPanel)
