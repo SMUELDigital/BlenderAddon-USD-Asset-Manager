@@ -1,4 +1,4 @@
-# BlenderAddon USD Stage Manager
+# BlenderAddon USD Asset Manager
 
 *Vision* 
 
