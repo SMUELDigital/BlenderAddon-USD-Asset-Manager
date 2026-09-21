@@ -1,7 +1,7 @@
 """SMUELDigital USD Stage Manager — complete stage-oriented rewrite, 2026."""
 bl_info = {
     'name': 'USD Stage Manager', 'author': 'SMUELDigital',
-    'version': (2, 0, 0), 'blender': (5, 2, 0),
+    'version': (2, 0, 1), 'blender': (5, 2, 0),
     'location': '3D View > Sidebar > USD Stage; Properties > Scene',
     'description': 'Solaris-inspired USD scene graph, composition layers and prim inspector',
     'category': 'Import-Export',
@@ -138,24 +138,61 @@ class SafeOperator:
             return {'CANCELLED'}
 
 
+def find_stage_dock(screen):
+    """Find the saved pane without depending on process-specific area pointers."""
+    index = screen.usdm_dock_index
+    areas = list(screen.areas)
+    if 0 <= index < len(areas):
+        area = areas[index]
+        if area.type == 'PROPERTIES' and area.spaces.active.context == 'SCENE' and area.spaces.active.pin_id:
+            return area
+    return None
+
+
+def configure_stage_dock(area, scene):
+    area.type = 'PROPERTIES'
+    space = area.spaces.active
+    space.pin_id = scene
+    space.context = 'SCENE'
+    area.tag_redraw()
+
+
 class USDM_OT_window(bpy.types.Operator):
+    # Keep the operator ID for compatibility with saved shortcuts.
     bl_idname = 'usdm.window'
-    bl_label = 'Open USD Stage Window'
-    bl_description = 'Open a separate Properties window on the Scene tab with the USD stage panels'
+    bl_label = 'Open Embedded USD Stage'
+    bl_description = 'Dock the USD stage below the viewport in this Blender window; reuse the existing pane'
 
     def execute(self, context):
-        before = set(w.as_pointer() for w in context.window_manager.windows)
-        result = bpy.ops.screen.area_dupli('INVOKE_DEFAULT')
-        if 'CANCELLED' in result:
-            return {'CANCELLED'}
-        for window in context.window_manager.windows:
-            if window.as_pointer() not in before:
-                area = window.screen.areas[0]
-                area.type = 'PROPERTIES'
-                area.spaces.active.context = 'SCENE'
-                break
+        screen = context.screen
+        dock = find_stage_dock(screen)
+        if dock:
+            configure_stage_dock(dock, context.scene)
+        else:
+            candidates = [a for a in screen.areas if a.type == 'VIEW_3D']
+            viewport = context.area if context.area and context.area.type == 'VIEW_3D' else max(
+                candidates, key=lambda a: a.width * a.height, default=None)
+            if viewport is None:
+                self.report({'ERROR'}, 'Open a 3D Viewport before docking the USD stage')
+                return {'CANCELLED'}
+            if viewport.height < 420:
+                self.report({'ERROR'}, 'Enlarge the viewport vertically before opening the stage pane')
+                return {'CANCELLED'}
+            original = viewport.as_pointer()
+            before = {a.as_pointer() for a in screen.areas}
+            with context.temp_override(area=viewport):
+                result = bpy.ops.screen.area_split(direction='HORIZONTAL', factor=0.40)
+            if 'FINISHED' not in result:
+                return {'CANCELLED'}
+            pieces = [a for a in screen.areas if a.as_pointer() == original or a.as_pointer() not in before]
+            dock = min(pieces, key=lambda a: a.y)
+            configure_stage_dock(dock, context.scene)
+            screen.usdm_dock_index = list(screen.areas).index(dock)
         if core.Usd:
-            refresh(context)
+            try:
+                refresh(context)
+            except Exception as exc:
+                self.report({'WARNING'}, str(exc))
         return {'FINISHED'}
 
 
@@ -561,7 +598,7 @@ class USDM_PT_stage(StagePanel, bpy.types.Panel):
         row = layout.row(align=True)
         action_button(row, 'Undo USD', 'UNDO', 'LOOP_BACK')
         action_button(row, 'Redo USD', 'REDO', 'LOOP_FORWARDS')
-        row.operator('usdm.preview', text='Refresh Viewport', icon='SHADING_RENDERED')
+        layout.operator('usdm.preview', text='Refresh Viewport', icon='SHADING_RENDERED')
         if cfg.status:
             layout.label(text=cfg.status[:150], icon='ERROR')
         layout.label(text='Edit target: Working Layer • source files protected', icon='LOCKED')
@@ -715,6 +752,7 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Scene.usdm = PointerProperty(type=USDM_Settings)
+    bpy.types.Screen.usdm_dock_index = IntProperty(default=-1, options={'HIDDEN'})
     for handlers, fn in ((bpy.app.handlers.load_post, load_post), (bpy.app.handlers.undo_post, undo_post),
                          (bpy.app.handlers.redo_post, undo_post)):
         if fn not in handlers:
@@ -726,6 +764,7 @@ def unregister():
                          (bpy.app.handlers.redo_post, undo_post)):
         if fn in handlers:
             handlers.remove(fn)
+    del bpy.types.Screen.usdm_dock_index
     del bpy.types.Scene.usdm
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

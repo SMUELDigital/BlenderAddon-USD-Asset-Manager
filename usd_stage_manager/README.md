@@ -1,4 +1,4 @@
-# USD Stage Manager 2.0 — Blender 5.2
+# USD Stage Manager 2.0.1 — Blender 5.2
 
 A Solaris-inspired USD stage browser and working-layer editor, rewritten from
 SMUELDigital's USD Asset Manager. Tested with Blender 5.2.2 LTS on Linux.
@@ -10,13 +10,15 @@ USD installation is required on the tested official Blender build.
 1. Disable the old USD Asset Manager / USD Layers Panel add-on. Its automatic
    parenting handler can interfere with your scene while both are enabled.
 2. In Blender 5.2, open **Edit → Preferences → Add-ons → menu → Install from Disk**.
-3. Select `USD_Stage_Manager_Blender52_v2.0.0.zip` and enable USD Stage Manager.
-4. In the 3D View press **N → USD Stage → Open USD Stage Window**.
+3. Select `USD_Stage_Manager_Blender52_v2.0.1.zip` and enable USD Stage Manager.
+4. In the 3D View press **N → USD Stage → Open Embedded USD Stage**.
    The same panels are in **Properties → Scene → USD Stage Manager**.
 
-The separate window is a Blender Properties area on the Scene tab, containing
-native panels. It is not a new compiled editor type, a LOP node network or a
-Hydra viewport. Widen the window to see the prim names, type and controls.
+The stage opens as a docked Properties area below the 3D Viewport in the same
+Blender window. Repeated clicks reuse the pane. Drag the divider to resize it;
+save the .blend with Load UI enabled when reopening to retain the layout.
+The pane is pinned to the scene it was opened for and contains native panels. It is not a new compiled editor type, a LOP node network or a
+Hydra viewport. The initial pane takes 40% of the viewport height. It creates no floating window.
 
 ## Quick start
 
@@ -105,6 +107,9 @@ The **Blender Scene ↔ USD** panel includes:
 - Blender 5.2.2 background smoke test: registration/unregistration, stage actions,
   structure idempotency/world transforms, preview replacement with selected
   preview objects, native import/export, and `.blend` save/reopen.
+- Embedded-pane test: no new windows, repeat-open reuses the pane, and the pane
+  survives saving/reopening the .blend. Verified in Blender 5.2.2 background mode;
+  interactive appearance still needs testing on macOS.
 - Blender extension manifest validation.
 
 Source tests are in the repository's `tests/` directory. From the repository:
@@ -112,6 +117,7 @@ Source tests are in the repository's `tests/` directory. From the repository:
 ```sh
 python -m unittest discover -s tests -v  # needs usd-core in this Python
 blender --background --factory-startup --python-exit-code 1 --python tests/blender_smoke.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_dock.py
 blender --command extension validate usd_stage_manager
 ```
 

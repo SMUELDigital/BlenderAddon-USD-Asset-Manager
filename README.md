@@ -26,14 +26,14 @@
 
 ---
 
-# USD Stage Manager 2.0 — Blender 5.2
+# USD Stage Manager 2.0.1 — Blender 5.2
 
 Solaris-inspired USD prim tree, non-destructive working layer, sublayers,
-references/payloads, variants and prim inspection, with a separate Blender
-stage window and explicit viewport preview.
+references/payloads, variants and prim inspection, with a embedded Blender
+stage pane and explicit viewport preview.
 
 - Install the packaged extension ZIP from **Preferences → Add-ons → Install from Disk**.
-- Open **3D View → N → USD Stage → Open USD Stage Window**.
+- Open **3D View → N → USD Stage → Open Embedded USD Stage**.
 - [Full installation guide, workflow and limitations](usd_stage_manager/README.md)
 - [Add-on source](usd_stage_manager/)
 - [Functional tests](tests/)
