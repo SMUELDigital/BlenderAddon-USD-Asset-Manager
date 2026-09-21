@@ -1,0 +1,7 @@
+USD Stage Manager 2.0
+Original project and author: SMUELDigital
+https://github.com/SMUELDigital/BlenderAddon-USD-Asset-Manager
+
+This is a complete stage-oriented rewrite targeting Blender 5.2. The earlier
+V1–V5 scripts are retained in the source repository for historical reference.
+Distributed under the repository's Apache License 2.0.
