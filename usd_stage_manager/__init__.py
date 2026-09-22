@@ -1,7 +1,7 @@
 """SMUELDigital USD Stage Manager — complete stage-oriented rewrite, 2026."""
 bl_info = {
     'name': 'USD Stage Manager', 'author': 'SMUELDigital',
-    'version': (2, 1, 0), 'blender': (5, 2, 0),
+    'version': (2, 1, 1), 'blender': (5, 2, 0),
     'location': '3D View > Sidebar > USD Stage; Properties > Scene',
     'description': 'Solaris-inspired USD scene graph, composition layers and prim inspector',
     'category': 'Import-Export',
@@ -585,6 +585,34 @@ class USDM_OT_publish(SafeOperator, bpy.types.Operator, ExportHelper):
         self.report({'INFO'}, 'Published ' + output)
 
 
+class USDM_USDHook(bpy.types.USDHook):
+    """Preserve the organizational role of manager-created Blender empties."""
+    bl_idname = 'usdm_structure_export'
+    bl_label = 'USD Stage Manager structure'
+    warnings = []
+
+    @staticmethod
+    def on_export(export_context):
+        from .export_structure import SCOPE_ROLES, make_scope
+        USDM_USDHook.warnings = []
+        stage = export_context.get_stage()
+        if stage is None:
+            return False
+        for path, blocks in export_context.get_prim_map().items():
+            if not any(isinstance(obj, bpy.types.Object) and obj.type == 'EMPTY'
+                       and obj.get('usdm_structure') in SCOPE_ROLES for obj in blocks):
+                continue
+            prim = stage.GetPrimAtPath(path)
+            if not prim:
+                continue
+            reason = make_scope(prim)
+            if reason:
+                message = str(path) + ': retained ' + prim.GetTypeName() + ' because it ' + reason
+                USDM_USDHook.warnings.append(message)
+                print('USD Stage Manager:', message)
+        return True
+
+
 class USDM_OT_export_scene(bpy.types.Operator, ExportHelper):
     bl_idname = 'usdm.export_scene'
     bl_label = 'Export Blender Scene to USD'
@@ -638,6 +666,7 @@ class USDM_OT_export_scene(bpy.types.Operator, ExportHelper):
             if core.Usd:
                 from .validation import audit_file
                 report = audit_file(path)
+                report['warnings'].extend(USDM_USDHook.warnings)
                 write_validation_report(report)
                 cfg.validation_summary = 'Export %s: %d errors, %d warnings' % (
                     'PASS' if report['passed'] else 'FAIL', len(report['errors']), len(report['warnings']))
@@ -949,7 +978,7 @@ def undo_post(_):
     _SESSIONS.clear()
 
 
-CLASSES = (USDM_Attribute, USDM_Prim, USDM_Layer, USDM_Settings, USDM_OT_window, USDM_OT_new, USDM_OT_open,
+CLASSES = (USDM_USDHook, USDM_Attribute, USDM_Prim, USDM_Layer, USDM_Settings, USDM_OT_window, USDM_OT_new, USDM_OT_open,
            USDM_OT_save, USDM_OT_action, USDM_OT_clear, USDM_OT_add_layer, USDM_OT_add_asset,
            USDM_OT_define, USDM_OT_variant, USDM_OT_purpose, USDM_OT_attribute, USDM_OT_preview,
            USDM_OT_export_scene, USDM_OT_validate, USDM_OT_publish, USDM_OT_structure, USDM_UL_prims, USDM_UL_attributes, USDM_UL_layers,

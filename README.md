@@ -26,7 +26,7 @@
 
 ---
 
-# USD Stage Manager 2.1.0 — Blender 5.2
+# USD Stage Manager 2.1.1 — Blender 5.2
 
 Solaris-inspired USD prim tree, non-destructive working layer, sublayers,
 references/payloads, variants and prim inspection, with a embedded Blender
@@ -45,6 +45,6 @@ stage editor; it does not include Hydra, LOP nodes or automatic two-way sync.
 Disable the old USD Layers Panel before enabling this rewrite. Legacy V1–V5
 scripts remain in `Scripts/` for reference.
 
-Version 2.1.0 adds preview-safe scene export, export-to-stage display, official
+Version 2.1.1 adds preview-safe scene export, export-to-stage display, official
 OpenUSD validation, relative-path saves, portable folder publishing and a
 wide-pane layout with a scrollable attribute inspector.

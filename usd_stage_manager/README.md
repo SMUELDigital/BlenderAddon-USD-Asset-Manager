@@ -1,4 +1,4 @@
-# USD Stage Manager 2.1.0 — Blender 5.2
+# USD Stage Manager 2.1.1 — Blender 5.2
 
 A Solaris-inspired scene graph and working-layer editor using Blender's bundled
 OpenUSD. Tested in Blender 5.2.2 LTS on Linux; macOS/Windows interactive testing
@@ -6,7 +6,7 @@ is still needed.
 
 ## Installation
 
-Disable the old USD Layers Panel. Install `USD_Stage_Manager_Blender52_v2.1.0.zip`
+Disable the old USD Layers Panel. Install `USD_Stage_Manager_Blender52_v2.1.1.zip`
 through Preferences → Add-ons → Install from Disk, then restart Blender.
 Open **3D View → N → USD Stage → Open Embedded USD Stage**.
 The stage docks below the viewport, without creating a floating window. Repeated
@@ -91,6 +91,26 @@ Xform parents around Mesh/Camera prims are valid USD and are not malformed dupli
 USD validity does not imply that all applications implement all schemas, plugins,
 color-management systems, textures, lights or rendering features identically.
 
+## Scope typing (2.1.1)
+
+The add-on's tagged `geo`, `lights`, `cameras` and `extras` organizational empties
+export as standard **Scope** prims by default. This works in both the add-on's
+export and Blender's native USD export while the add-on is enabled, including
+existing tagged scenes created with 2.1.0. Mapping uses Blender's exported prim
+map and stored role, not object names, so renaming a group is supported.
+
+World and object transform parents remain Xforms. A category with non-identity
+local transforms, sampled transforms, or a reset transform stack also remains an
+Xform to preserve placement/animation. The add-on reports why it was retained.
+Untagged empties and geometry/camera/light/material types are not retyped.
+
+Scope is a non-transformable organizational schema, not a mandatory replacement
+for every grouping Xform. USD `kind` (group/assembly/component/subcomponent) is
+separate model-hierarchy metadata. This fix does not guess asset boundaries or
+assign every object the kind component. “Actor” is not a core UsdGeom prim type.
+The two World levels represent the export root and the scene's World object;
+their paths are preserved for references and bindings.
+
 ## Blender scene organization
 
 Organize Blender Scene for USD explicitly creates tagged World/geo/lights/cameras/
@@ -129,3 +149,6 @@ Sources:
 - https://github.com/SMUELDigital/BlenderAddon-USD-Asset-Manager
 - https://openusd.org/release/toolset.html#usdchecker
 - https://openusd.org/release/toolset.html#usdcat
+
+Scope reference: https://openusd.org/release/api/class_usd_geom_scope.html
+Model kinds: https://openusd.org/release/glossary.html#kind
