@@ -37,3 +37,49 @@ class ScopeTests(unittest.TestCase):
         p = UsdGeom.Mesh.Define(s, '/mesh').GetPrim()
         self.assertTrue(m.make_scope(p))
         self.assertEqual(p.GetTypeName(), 'Mesh')
+
+class OrganizationTests(unittest.TestCase):
+    def test_material_binding_and_light_paths(self):
+        from pxr import UsdShade, UsdLux, Sdf
+        s = Usd.Stage.CreateInMemory()
+        world = UsdGeom.Xform.Define(s, '/World/World').GetPrim()
+        UsdGeom.Xform.Define(s, '/World')
+        UsdGeom.Scope.Define(s, '/World/_materials')
+        mat = UsdShade.Material.Define(s, '/World/_materials/Mat')
+        shader = UsdShade.Shader.Define(s, '/World/_materials/Mat/Shader')
+        shader.CreateIdAttr('UsdPreviewSurface')
+        mat.CreateSurfaceOutput().ConnectToSource(shader.ConnectableAPI(), 'surface')
+        mesh = UsdGeom.Mesh.Define(s, '/World/World/geo/Mesh').GetPrim()
+        UsdShade.MaterialBindingAPI.Apply(mesh).Bind(mat)
+        UsdLux.DomeLight.Define(s, '/World/env_light')
+        m.organize_export(s, world.GetPath(), {})
+        self.assertEqual(world.GetTypeName(), 'Xform')
+        self.assertEqual(Usd.ModelAPI(world).GetKind(), 'assembly')
+        self.assertTrue(world.IsModel())
+        self.assertTrue(s.GetPrimAtPath('/World/World/lights/env_light'))
+        self.assertFalse(s.GetPrimAtPath('/World/env_light'))
+        self.assertFalse(s.GetPrimAtPath('/World/_materials'))
+        bound = UsdShade.MaterialBindingAPI(mesh).ComputeBoundMaterial()[0]
+        self.assertEqual(str(bound.GetPath()), '/World/World/materials/Mat')
+        out = bound.GetSurfaceOutput().GetConnectedSource()
+        self.assertEqual(str(out[0].GetPath()), '/World/World/materials/Mat/Shader')
+
+    def test_animated_light_world_transform_and_collision(self):
+        from pxr import UsdLux
+        s = Usd.Stage.CreateInMemory()
+        world = UsdGeom.Xform.Define(s, '/World')
+        world.AddRotateZOp().Set(30)
+        UsdGeom.Scope.Define(s, '/World/lights')
+        UsdLux.DomeLight.Define(s, '/World/lights/Light')
+        parent = UsdGeom.Xform.Define(s, '/Rig')
+        op = parent.AddRotateYOp(); op.Set(0, 1); op.Set(90, 2)
+        light = UsdLux.SphereLight.Define(s, '/Rig/Light')
+        UsdGeom.Xformable(light).AddTranslateOp().Set((1, 2, 3))
+        times = (1, 1.25, 1.5, 2)
+        before = [UsdGeom.XformCache(t).GetLocalToWorldTransform(light.GetPrim()) for t in times]
+        m.organize_export(s, world.GetPath(), {})
+        moved = [p for p in s.Traverse() if p.GetTypeName() == 'SphereLight'][0]
+        self.assertTrue(str(moved.GetPath()).startswith('/World/lights/'))
+        self.assertTrue(s.GetPrimAtPath('/World/lights/Light'))
+        for t, expected in zip(times, before):
+            self.assertTrue(Gf.IsClose(expected, UsdGeom.XformCache(t).GetLocalToWorldTransform(moved), 1e-10))

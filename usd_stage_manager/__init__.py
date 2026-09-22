@@ -1,7 +1,7 @@
 """SMUELDigital USD Stage Manager — complete stage-oriented rewrite, 2026."""
 bl_info = {
     'name': 'USD Stage Manager', 'author': 'SMUELDigital',
-    'version': (2, 1, 1), 'blender': (5, 2, 0),
+    'version': (2, 2, 0), 'blender': (5, 2, 0),
     'location': '3D View > Sidebar > USD Stage; Properties > Scene',
     'description': 'Solaris-inspired USD scene graph, composition layers and prim inspector',
     'category': 'Import-Export',
@@ -590,15 +590,21 @@ class USDM_USDHook(bpy.types.USDHook):
     bl_idname = 'usdm_structure_export'
     bl_label = 'USD Stage Manager structure'
     warnings = []
+    error = ''
 
     @staticmethod
     def on_export(export_context):
-        from .export_structure import SCOPE_ROLES, make_scope
+        from .export_structure import SCOPE_ROLES, make_scope, organize_export
         USDM_USDHook.warnings = []
+        USDM_USDHook.error = ''
         stage = export_context.get_stage()
         if stage is None:
             return False
+        roles = {}
         for path, blocks in export_context.get_prim_map().items():
+            for obj in blocks:
+                if isinstance(obj, bpy.types.Object) and obj.type == 'EMPTY' and obj.get('usdm_structure'):
+                    roles.setdefault(obj['usdm_structure'], []).append(path)
             if not any(isinstance(obj, bpy.types.Object) and obj.type == 'EMPTY'
                        and obj.get('usdm_structure') in SCOPE_ROLES for obj in blocks):
                 continue
@@ -610,6 +616,19 @@ class USDM_USDHook(bpy.types.USDHook):
                 message = str(path) + ': retained ' + prim.GetTypeName() + ' because it ' + reason
                 USDM_USDHook.warnings.append(message)
                 print('USD Stage Manager:', message)
+        worlds = roles.get('World', [])
+        if len(worlds) == 1:
+            world = worlds[0]
+            categories = {role: paths[0] for role, paths in roles.items()
+                          if role in SCOPE_ROLES and len(paths) == 1 and paths[0].GetParentPath() == world}
+            before = stage.GetRootLayer().ExportToString()
+            try:
+                organize_export(stage, world, categories)
+            except Exception as exc:
+                stage.GetRootLayer().ImportFromString(before)
+                USDM_USDHook.error = str(exc)
+                print('USD Stage Manager export organization failed:', exc)
+                return False
         return True
 
 
@@ -663,6 +682,8 @@ class USDM_OT_export_scene(bpy.types.Operator, ExportHelper):
             result = bpy.ops.wm.usd_export(**kwargs)
             if 'FINISHED' not in result:
                 return result
+            if USDM_USDHook.error:
+                raise ValueError('Export organization failed: ' + USDM_USDHook.error)
             if core.Usd:
                 from .validation import audit_file
                 report = audit_file(path)
@@ -900,6 +921,7 @@ class USDM_PT_inspector(StagePanel, bpy.types.Panel):
             return
         row = layout.row(align=True)
         row.label(text=p.GetTypeName() or 'Untyped', icon='OBJECT_DATA')
+        layout.label(text='Kind: ' + (p.GetMetadata('kind') or 'not authored'))
         action_button(row, 'Set Default Prim', 'DEFAULT')
         row.operator('usdm.purpose', text='Purpose')
         layout.operator('usdm.clear', icon='LOOP_BACK')

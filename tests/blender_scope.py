@@ -18,7 +18,7 @@ with tempfile.TemporaryDirectory() as tmp:
     out = str(Path(tmp) / 'scope.usdc')
     assert bpy.ops.usdm.export_scene(filepath=out) == {'FINISHED'}
     s = Usd.Stage.Open(out)
-    scopes = [p for p in s.Traverse() if p.GetTypeName() == 'Scope' and p.GetName() != '_materials']
+    scopes = [p for p in s.Traverse() if p.GetTypeName() == 'Scope' and p.GetName() not in ('_materials', 'materials')]
     assert len(scopes) == 4, [(str(p.GetPath()), p.GetTypeName()) for p in s.Traverse()]
     assert s.GetPrimAtPath('/World/geo').GetTypeName() == 'Xform'
     assert all(not p.HasProperty('xformOpOrder') for p in scopes)

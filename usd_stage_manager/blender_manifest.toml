@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "usd_stage_manager"
-version = "2.1.1"
+version = "2.2.0"
 name = "USD Stage Manager"
 tagline = "Browse and edit USD stages with a Solaris-inspired scene graph"
 maintainer = "SMUELDigital"

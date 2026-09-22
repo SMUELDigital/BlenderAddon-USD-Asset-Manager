@@ -1,4 +1,4 @@
-# USD Stage Manager 2.1.1 — Blender 5.2
+# USD Stage Manager 2.2.0 — Blender 5.2
 
 A Solaris-inspired scene graph and working-layer editor using Blender's bundled
 OpenUSD. Tested in Blender 5.2.2 LTS on Linux; macOS/Windows interactive testing
@@ -6,7 +6,7 @@ is still needed.
 
 ## Installation
 
-Disable the old USD Layers Panel. Install `USD_Stage_Manager_Blender52_v2.1.1.zip`
+Disable the old USD Layers Panel. Install `USD_Stage_Manager_Blender52_v2.2.0.zip`
 through Preferences → Add-ons → Install from Disk, then restart Blender.
 Open **3D View → N → USD Stage → Open Embedded USD Stage**.
 The stage docks below the viewport, without creating a floating window. Repeated
@@ -91,7 +91,29 @@ Xform parents around Mesh/Camera prims are valid USD and are not malformed dupli
 USD validity does not imply that all applications implement all schemas, plugins,
 color-management systems, textures, lights or rendering features identically.
 
-## Scope typing (2.1.1)
+## World assembly, lights and materials (2.2.0)
+
+For exports with exactly one tagged World, the scene World and export-root
+ancestors receive `kind = assembly` while retaining their Xform schema. Kind
+appears separately in the prim inspector. The exporter creates a `materials`
+Scope alongside cameras/extras/geo/lights, moves exported materials there and
+updates USD bindings and shader connections through Usd.NamespaceEditor.
+
+All exported prims carrying UsdLux.LightAPI outside the lights branch, including
+the world environment DomeLight, are moved under that branch. Existing lights
+already inside it retain their paths. Collisions use numbered names; no prim is
+replaced. When necessary, a reset-stack placement chain preserves the old light
+transform operations and time samples without matrix baking. Instanced lights
+that cannot safely be moved fail organization explicitly. The original Blender
+parenting is unchanged. Re-export is required to update previously saved USD.
+
+This organization is limited to freshly exported, single-layer stages with one
+unambiguous tagged World; opening/saving arbitrary USD assets does not reorganize
+them. With no tagged World, use Organize Blender Scene for USD first. Multiple
+tagged Worlds are not implicitly merged. The two World levels remain the export
+root and Blender's tagged scene root. No object is automatically labeled component.
+
+## Scope typing
 
 The add-on's tagged `geo`, `lights`, `cameras` and `extras` organizational empties
 export as standard **Scope** prims by default. This works in both the add-on's
