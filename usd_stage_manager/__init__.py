@@ -1,7 +1,7 @@
 """SMUELDigital USD Stage Manager — complete stage-oriented rewrite, 2026."""
 bl_info = {
     'name': 'USD Stage Manager', 'author': 'SMUELDigital',
-    'version': (2, 0, 1), 'blender': (5, 2, 0),
+    'version': (2, 1, 0), 'blender': (5, 2, 0),
     'location': '3D View > Sidebar > USD Stage; Properties > Scene',
     'description': 'Solaris-inspired USD scene graph, composition layers and prim inspector',
     'category': 'Import-Export',
@@ -12,12 +12,18 @@ import json
 import hashlib
 import os
 import uuid
+import textwrap
+from types import SimpleNamespace
 import bpy
 from bpy.app.handlers import persistent
 from bpy.props import (BoolProperty, CollectionProperty, EnumProperty, FloatProperty,
                        IntProperty, PointerProperty, StringProperty)
 from bpy_extras.io_utils import ImportHelper, ExportHelper
-from . import core
+if 'core' in locals():
+    import importlib
+    core = importlib.reload(core)
+else:
+    from . import core
 
 _SESSIONS = {}
 
@@ -67,6 +73,7 @@ def refresh(context):
         item.name = os.path.basename(path)
         item.muted = s.stage.IsLayerMuted(path)
     cfg.layer_index = min(cfg.layer_index, len(cfg.layers) - 1)
+    update_inspector(context)
     persist(context)
     redraw()
 
@@ -84,6 +91,31 @@ def selection_update(self, context):
         self.selected_path = self.prims[self.prim_index].path
     else:
         self.selected_path = ''
+    update_inspector(context)
+
+
+def update_inspector(context):
+    cfg = settings(context)
+    cfg.attributes.clear()
+    if not core.Usd or not cfg.selected_path:
+        return
+    try:
+        data = session(context).inspect(cfg.selected_path, cfg.inspect_frame if cfg.use_time else None)
+        for name, kind, value, samples in data['attributes']:
+            item = cfg.attributes.add()
+            item.name, item.kind, item.value, item.samples = name, kind, value, samples
+    except Exception as exc:
+        cfg.status = str(exc)
+
+
+def inspect_update(self, context):
+    update_inspector(context)
+
+
+class USDM_Attribute(bpy.types.PropertyGroup):
+    kind: StringProperty()
+    value: StringProperty()
+    samples: IntProperty()
 
 
 class USDM_Prim(bpy.types.PropertyGroup):
@@ -113,11 +145,19 @@ class USDM_Settings(bpy.types.PropertyGroup):
     layers: CollectionProperty(type=USDM_Layer)
     layer_index: IntProperty(default=-1)
     status: StringProperty()
-    inspect_frame: FloatProperty(name='USD Time', default=1.0)
-    use_time: BoolProperty(name='Sample at USD Time', default=False)
+    inspect_frame: FloatProperty(name='USD Time', default=1.0, update=inspect_update)
+    use_time: BoolProperty(name='Sample at USD Time', default=False, update=inspect_update)
     attr_search: StringProperty(name='Filter attributes')
+    attributes: CollectionProperty(type=USDM_Attribute)
+    attribute_index: IntProperty(default=-1)
     preview_collection: PointerProperty(type=bpy.types.Collection)
     preview_fingerprint: StringProperty(options={'HIDDEN'})
+    previous_snapshot: StringProperty(options={'HIDDEN'})
+    export_open: BoolProperty(name='Show exported file in Stage', default=True)
+    export_include_preview: BoolProperty(name='Include preview objects', default=False)
+    export_world: BoolProperty(name='World environment', default=True)
+    validation_summary: StringProperty()
+    validation_fingerprint: StringProperty(options={'HIDDEN'})
     export_animation: BoolProperty(name='Animation', default=True)
     export_selected: BoolProperty(name='Selected only', default=False)
 
@@ -234,13 +274,17 @@ class USDM_OT_open(SafeOperator, bpy.types.Operator, ImportHelper):
 class USDM_OT_save(SafeOperator, bpy.types.Operator, ExportHelper):
     bl_idname = 'usdm.save'
     bl_label = 'Save USD Stage As'
+    check_extension = False
     filename_ext = '.usda'
     filter_glob: StringProperty(default='*.usd;*.usda;*.usdc', options={'HIDDEN'})
     flatten: BoolProperty(name='Flatten composition', default=False,
                           description='Bake composed prims into one layer; variants and composition arcs are lost')
 
     def run(self, context):
-        session(context).save(bpy.path.abspath(self.filepath), self.flatten)
+        path = bpy.path.abspath(self.filepath)
+        if not os.path.splitext(path)[1]:
+            path += '.usda'
+        session(context).save(path, self.flatten)
         self.report({'INFO'}, 'USD stage saved')
 
 
@@ -261,6 +305,11 @@ class USDM_OT_action(SafeOperator, bpy.types.Operator):
             s.undo()
         elif self.action == 'REDO':
             s.redo()
+        elif self.action == 'RESTORE_STAGE':
+            if cfg.previous_snapshot:
+                previous = cfg.previous_snapshot
+                cfg.previous_snapshot = s.snapshot()
+                _SESSIONS[context.scene.as_pointer()] = core.Session.from_snapshot(previous)
         elif self.action == 'COLLAPSE':
             collapsed = set(json.loads(cfg.collapsed))
             collapsed.symmetric_difference_update([path])
@@ -475,30 +524,141 @@ class USDM_OT_preview(SafeOperator, bpy.types.Operator):
                 pass
 
 
+def preview_objects(scene):
+    result = set()
+    for collection in bpy.data.collections:
+        if collection.get('usdm_preview'):
+            result.update(collection.all_objects)
+    return result.intersection(set(scene.objects))
+
+
+def write_validation_report(report):
+    text = bpy.data.texts.get('USD Validation Report') or bpy.data.texts.new('USD Validation Report')
+    text.clear()
+    text.write(json.dumps(report, indent=2))
+    return text
+
+
+class USDM_OT_validate(SafeOperator, bpy.types.Operator):
+    bl_idname = 'usdm.validate'
+    bl_label = 'Validate OpenUSD Stage'
+    bl_description = 'Run available OpenUSD validators; detailed results appear in the USD Validation Report text block'
+
+    def run(self, context):
+        from .validation import audit_stage
+        report = audit_stage(session(context).stage)
+        write_validation_report(report)
+        cfg = settings(context)
+        cfg.validation_summary = '%s: %d errors, %d warnings (%d validators)' % (
+            'PASS' if report['passed'] else 'FAIL', len(report['errors']), len(report['warnings']), len(report['validators']))
+        cfg.validation_fingerprint = hashlib.sha256(session(context).snapshot().encode()).hexdigest()
+        self.report({'INFO'} if report['passed'] else {'WARNING'}, cfg.validation_summary)
+
+
+class USDM_OT_publish(SafeOperator, bpy.types.Operator, ExportHelper):
+    bl_idname = 'usdm.publish'
+    bl_label = 'Publish Portable USD Folder'
+    bl_description = 'Write a flattened stage and copy its local dependencies into a new folder'
+    filename_ext = '.usda'
+    filter_glob: StringProperty(default='*.usda', options={'HIDDEN'})
+
+    def draw(self, context):
+        self.layout.label(text='Creates a new folder named after this filename.')
+        self.layout.label(text='Contains stage.usda plus copied asset files.')
+        self.layout.label(text='Bakes current variants and loaded payloads.')
+
+    def run(self, context):
+        from .validation import audit_stage, audit_file
+        current = session(context)
+        if current.stage.GetMutedLayers() or current.unloaded:
+            raise ValueError('Unmute layers and load payloads before portable publishing')
+        report = audit_stage(current.stage)
+        write_validation_report(report)
+        if not report['passed']:
+            raise ValueError('Fix validation errors before publishing; see USD Validation Report')
+        directory = os.path.splitext(bpy.path.abspath(self.filepath))[0]
+        output = current.publish_portable(directory)
+        report = audit_file(output)
+        write_validation_report(report)
+        settings(context).validation_summary = 'Portable publish: ' + ('PASS' if report['passed'] else 'CHECK REPORT')
+        settings(context).validation_fingerprint = hashlib.sha256(current.snapshot().encode()).hexdigest()
+        self.report({'INFO'}, 'Published ' + output)
+
+
 class USDM_OT_export_scene(bpy.types.Operator, ExportHelper):
     bl_idname = 'usdm.export_scene'
     bl_label = 'Export Blender Scene to USD'
     filename_ext = '.usdc'
+    check_extension = False
     filter_glob: StringProperty(default='*.usd;*.usda;*.usdc', options={'HIDDEN'})
 
+    def draw(self, context):
+        cfg = settings(context)
+        for prop in ('export_selected', 'export_animation', 'export_include_preview', 'export_world', 'export_open'):
+            self.layout.prop(cfg, prop)
+        self.layout.label(text='Exports Blender objects, not working USD edits.')
+        self.layout.label(text='Previous USD stage can be restored after export.')
+
     def execute(self, context):
+        if context.mode != 'OBJECT':
+            self.report({'ERROR'}, 'Switch to Object Mode before exporting')
+            return {'CANCELLED'}
+        selected = list(context.selected_objects)
+        active = context.view_layer.objects.active
         try:
             cfg = settings(context)
             path = bpy.path.abspath(self.filepath)
-            if core.Usd and context.scene.as_pointer() in _SESSIONS:
+            if not os.path.splitext(path)[1]:
+                path += '.usdc'
+            if os.path.splitext(path)[1].lower() not in ('.usd', '.usda', '.usdc'):
+                raise ValueError('Use .usd, .usda or .usdc')
+            if core.Usd:
                 s = session(context)
                 sources = {os.path.realpath(x.realPath) for x in s.stage.GetUsedLayers() if x.realPath}
                 sources.update(os.path.realpath(x) for x in s.root.subLayerPaths)
                 if os.path.realpath(path) in sources:
                     raise ValueError('Choose a new filename; this is a source layer in the open stage')
+            candidates = set(selected if cfg.export_selected else context.view_layer.objects)
+            if not cfg.export_include_preview:
+                candidates -= preview_objects(context.scene)
+            if not candidates:
+                raise ValueError('No exportable objects. Select source objects or turn off Selected only.')
+            for obj in context.view_layer.objects:
+                obj.select_set(obj in candidates)
             kwargs = supported_kwargs(bpy.ops.wm.usd_export, {
-                'filepath': path, 'selected_objects_only': cfg.export_selected,
+                'filepath': path, 'selected_objects_only': True,
                 'export_animation': cfg.export_animation, 'export_materials': True,
+                'generate_preview_surface': True, 'generate_materialx_network': False,
+                'export_textures': True, 'overwrite_textures': False,
+                'export_custom_properties': False, 'convert_world_material': cfg.export_world,
                 'root_prim_path': '/World', 'relative_paths': True})
-            return bpy.ops.wm.usd_export(**kwargs)
+            result = bpy.ops.wm.usd_export(**kwargs)
+            if 'FINISHED' not in result:
+                return result
+            if core.Usd:
+                from .validation import audit_file
+                report = audit_file(path)
+                write_validation_report(report)
+                cfg.validation_summary = 'Export %s: %d errors, %d warnings' % (
+                    'PASS' if report['passed'] else 'FAIL', len(report['errors']), len(report['warnings']))
+                if cfg.export_open:
+                    cfg.previous_snapshot = s.snapshot()
+                    _SESSIONS[context.scene.as_pointer()] = core.Session(path)
+                    cfg.collapsed = '[]'
+                    cfg.selected_path = ''
+                    refresh(context)
+                    cfg.validation_fingerprint = hashlib.sha256(session(context).snapshot().encode()).hexdigest()
+                else:
+                    cfg.validation_fingerprint = ''
+                self.report({'INFO'} if report['passed'] else {'WARNING'}, cfg.validation_summary)
+            return {'FINISHED'}
         except Exception as exc:
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
+        finally:
+            for obj in context.view_layer.objects:
+                obj.select_set(obj in selected)
+            context.view_layer.objects.active = active
 
 
 class USDM_OT_structure(bpy.types.Operator):
@@ -564,11 +724,36 @@ class USDM_UL_prims(bpy.types.UIList):
         action_button(row, '', 'ACTIVE', 'CHECKBOX_HLT' if item.active else 'CHECKBOX_DEHLT', item.path)
 
 
+class USDM_UL_attributes(bpy.types.UIList):
+    def filter_items(self, context, data, propname):
+        query = data.attr_search.casefold()
+        return [self.bitflag_filter_item if query in a.name.casefold() else 0 for a in data.attributes], []
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        row = layout.row(align=True)
+        split = row.split(factor=0.48)
+        split.label(text=item.name, icon='TIME' if item.samples else 'NONE')
+        split.label(text=item.value)
+        if item.kind in ('string', 'token', 'bool', 'int', 'int64', 'uint', 'uint64', 'float', 'double', 'half'):
+            op = row.operator('usdm.attribute', text='', icon='GREASEPENCIL')
+            op.attribute, op.prim_path = item.name, data.selected_path
+
+
 class USDM_UL_layers(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         row = layout.row(align=True)
         row.label(text=item.name, icon='FILE')
         action_button(row, '', 'MUTE', 'HIDE_ON' if item.muted else 'HIDE_OFF', item.path)
+
+
+def wide_stage(context):
+    return context.area and context.area.width / context.preferences.system.ui_scale >= 850
+
+
+def wrapped(layout, context, message, icon='NONE'):
+    width = max(22, int(context.region.width / context.preferences.system.ui_scale / 7) - 8)
+    for i, line in enumerate(textwrap.wrap(message, width=width)):
+        layout.label(text=line, icon=icon if i == 0 else 'NONE')
 
 
 class StagePanel:
@@ -601,22 +786,47 @@ class USDM_PT_stage(StagePanel, bpy.types.Panel):
         layout.operator('usdm.preview', text='Refresh Viewport', icon='SHADING_RENDERED')
         if cfg.status:
             layout.label(text=cfg.status[:150], icon='ERROR')
-        layout.label(text='Edit target: Working Layer • source files protected', icon='LOCKED')
+        wrapped(layout, context, 'Edit target: Working Layer. Source files protected.', icon='LOCKED')
+        row = layout.row(align=True)
+        row.operator('usdm.validate', text='Validate', icon='CHECKMARK')
+        row.operator('usdm.publish', text='Publish Folder', icon='PACKAGE')
+        row.operator('usdm.window', text='Dock', icon='WINDOW')
+        if cfg.validation_summary:
+            checked = cfg.validation_fingerprint == hashlib.sha256(cfg.snapshot.encode()).hexdigest()
+            wrapped(layout, context, cfg.validation_summary if checked else 'Last check: ' + cfg.validation_summary + ' (revalidate current stage)')
+        if cfg.previous_snapshot:
+            action_button(layout, 'Restore Previous USD Stage', 'RESTORE_STAGE', 'LOOP_BACK')
         key = context.scene.as_pointer()
         if key in _SESSIONS and cfg.preview_collection and cfg.preview_fingerprint != hashlib.sha256(cfg.snapshot.encode()).hexdigest():
             layout.label(text='Stage changed — refresh viewport preview', icon='INFO')
         if not cfg.snapshot:
             layout.label(text='Choose New or Open to start.')
             return
+        sources = list(session(context).root.subLayerPaths)
+        wrapped(layout, context, 'Viewing: ' + (os.path.basename(sources[0]) if sources else 'Unsaved working stage (not Blender objects)'))
+        details = layers = None
+        if wide_stage(context):
+            split = layout.split(factor=0.45)
+            layout = split.column()
+            right = split.split(factor=0.62)
+            details, layers = right.column(), right.column()
         row = layout.row(align=True)
         row.prop(cfg, 'search', text='', icon='VIEWZOOM')
         action_button(row, '', 'EXPAND_ALL', 'ADD')
         action_button(row, '', 'COLLAPSE_ALL', 'REMOVE')
-        layout.template_list('USDM_UL_prims', '', cfg, 'prims', cfg, 'prim_index', rows=15)
+        layout.template_list('USDM_UL_prims', '', cfg, 'prims', cfg, 'prim_index', rows=10 if wide_stage(context) else 8)
         row = layout.row(align=True)
         row.operator('usdm.define', text='New Prim', icon='ADD')
         row.operator('usdm.add_asset', text='Reference / Payload', icon='LINKED')
         layout.label(text=cfg.selected_path or 'Select a prim')
+        if details is not None:
+            details.label(text='Prim Inspector')
+            if cfg.selected_path:
+                USDM_PT_inspector.draw(SimpleNamespace(layout=details), context)
+            else:
+                details.label(text='Select a prim to inspect')
+            layers.label(text='Layer Stack')
+            USDM_PT_layers.draw(SimpleNamespace(layout=layers), context)
 
 
 class USDM_PT_layers(StagePanel, bpy.types.Panel):
@@ -625,11 +835,11 @@ class USDM_PT_layers(StagePanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return bool(core.Usd and settings(context).snapshot)
+        return bool(core.Usd and settings(context).snapshot and not wide_stage(context))
 
     def draw(self, context):
         layout, cfg = self.layout, settings(context)
-        layout.label(text='Strongest → weakest; working layer always strongest')
+        layout.label(text='Strongest → weakest')
         row = layout.row()
         row.template_list('USDM_UL_layers', '', cfg, 'layers', cfg, 'layer_index', rows=4)
         col = row.column(align=True)
@@ -639,7 +849,7 @@ class USDM_PT_layers(StagePanel, bpy.types.Panel):
         action_button(col, '', 'LAYER_DOWN', 'TRIA_DOWN')
         if 0 <= cfg.layer_index < len(cfg.layers):
             layout.label(text=cfg.layers[cfg.layer_index].path)
-        layout.label(text='Nested sublayers and references appear in Prim Composition below.')
+        layout.label(text='Nested layers: see Prim Composition')
 
 
 class USDM_PT_inspector(StagePanel, bpy.types.Panel):
@@ -648,7 +858,7 @@ class USDM_PT_inspector(StagePanel, bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return bool(core.Usd and settings(context).selected_path)
+        return bool(core.Usd and settings(context).selected_path and not wide_stage(context))
 
     def draw(self, context):
         layout, cfg = self.layout, settings(context)
@@ -676,16 +886,11 @@ class USDM_PT_inspector(StagePanel, bpy.types.Panel):
         sub.enabled = cfg.use_time
         sub.prop(cfg, 'inspect_frame')
         layout.prop(cfg, 'attr_search', text='', icon='VIEWZOOM')
-        box = layout.box()
-        for name, kind, value, samples in data['attributes']:
-            if cfg.attr_search.casefold() not in name.casefold():
-                continue
-            row = box.row(align=True)
-            row.label(text=name + (' [animated]' if samples else ''))
-            row.label(text=value)
-            if kind in ('string', 'token', 'bool', 'int', 'int64', 'uint', 'uint64', 'float', 'double', 'half'):
-                op = row.operator('usdm.attribute', text='', icon='GREASEPENCIL')
-                op.attribute, op.prim_path = name, cfg.selected_path
+        layout.template_list('USDM_UL_attributes', '', cfg, 'attributes', cfg, 'attribute_index', rows=8)
+        if 0 <= cfg.attribute_index < len(cfg.attributes):
+            attr = cfg.attributes[cfg.attribute_index]
+            layout.label(text=attr.name + ' (' + attr.kind + ')')
+            layout.label(text=attr.value)
         for name, target in data['relationships']:
             if target:
                 layout.label(text=name + ' → ' + target)
@@ -706,9 +911,12 @@ class USDM_PT_bridge(StagePanel, bpy.types.Panel):
         row = layout.row()
         row.prop(cfg, 'export_animation')
         row.prop(cfg, 'export_selected')
+        layout.prop(cfg, 'export_include_preview')
+        layout.prop(cfg, 'export_world')
+        layout.prop(cfg, 'export_open')
         layout.operator('usdm.export_scene')
         layout.operator('wm.usd_import', text='Import USD as Editable Blender Objects')
-        layout.label(text='Preview is a snapshot. Blender edits do not write back to the USD stage.')
+        wrapped(layout, context, 'Preview is a snapshot. Export Blender objects to update the stage.')
 
 
 class USDM_PT_sidebar(bpy.types.Panel):
@@ -741,10 +949,10 @@ def undo_post(_):
     _SESSIONS.clear()
 
 
-CLASSES = (USDM_Prim, USDM_Layer, USDM_Settings, USDM_OT_window, USDM_OT_new, USDM_OT_open,
+CLASSES = (USDM_Attribute, USDM_Prim, USDM_Layer, USDM_Settings, USDM_OT_window, USDM_OT_new, USDM_OT_open,
            USDM_OT_save, USDM_OT_action, USDM_OT_clear, USDM_OT_add_layer, USDM_OT_add_asset,
            USDM_OT_define, USDM_OT_variant, USDM_OT_purpose, USDM_OT_attribute, USDM_OT_preview,
-           USDM_OT_export_scene, USDM_OT_structure, USDM_UL_prims, USDM_UL_layers,
+           USDM_OT_export_scene, USDM_OT_validate, USDM_OT_publish, USDM_OT_structure, USDM_UL_prims, USDM_UL_attributes, USDM_UL_layers,
            USDM_PT_stage, USDM_PT_layers, USDM_PT_inspector, USDM_PT_bridge, USDM_PT_sidebar)
 
 

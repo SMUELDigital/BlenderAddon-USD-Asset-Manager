@@ -61,6 +61,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert bpy.ops.usdm.save(filepath=os.path.join(tmp, 'saved.usda')) == {'FINISHED'}
     assert bpy.ops.usdm.export_scene(filepath=os.path.join(tmp, 'blender.usdc')) == {'FINISHED'}
     assert Usd.Stage.Open(os.path.join(tmp, 'blender.usdc'))
+    assert addon.session(ctx).stage.GetRootLayer().subLayerPaths[0] == os.path.join(tmp, 'blender.usdc')
+    assert bpy.ops.usdm.action(action='RESTORE_STAGE') == {'FINISHED'}
     blend = os.path.join(tmp, 'test.blend')
     bpy.ops.wm.save_as_mainfile(filepath=blend)
     bpy.ops.wm.open_mainfile(filepath=blend)

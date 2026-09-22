@@ -1,11 +1,15 @@
 """USD stage operations, independent of Blender. Rewrite of SMUELDigital's manager."""
 import json
 import os
+import glob
+import hashlib
+import shutil
+import tempfile
 from contextlib import contextmanager
 from pathlib import Path
 
 try:
-    from pxr import Sdf, Usd, UsdGeom, UsdShade, Tf
+    from pxr import Sdf, Usd, UsdGeom, UsdShade, Tf, UsdUtils
     USD_ERROR = ''
 except ImportError as exc:
     Sdf = Usd = UsdGeom = UsdShade = Tf = None
@@ -283,7 +287,7 @@ class Session:
             if not attr.Set(value, Usd.TimeCode.Default()):
                 raise ValueError('USD rejected this value')
 
-    def save(self, path, flatten=False):
+    def save(self, path, flatten=False, relative_paths=True):
         path = os.path.abspath(path)
         if Path(path).suffix.lower() not in ('.usd', '.usda', '.usdc'):
             raise ValueError('Save as .usd, .usda or .usdc')
@@ -291,10 +295,73 @@ class Session:
         sources.update(os.path.realpath(p) for p in self.root.subLayerPaths)
         if os.path.realpath(path) in sources:
             raise ValueError('Choose a new filename; source layers are protected from overwrite')
-        layer = self.stage.Flatten() if flatten else self.root
-        if not layer.Export(path):
-            raise RuntimeError('USD export failed')
+        layer = self.stage.Flatten() if flatten else Sdf.Layer.CreateAnonymous('export.usda')
+        if not flatten:
+            layer.TransferContent(self.root)
+        if relative_paths:
+            def rebase(asset):
+                if os.path.isabs(asset) and '[' not in asset:
+                    try:
+                        return os.path.relpath(asset, os.path.dirname(path)).replace(os.sep, '/')
+                    except ValueError:
+                        pass  # Cross-drive paths cannot be made relative.
+                return asset
+            UsdUtils.ModifyAssetPaths(layer, rebase)
+        handle, temporary = tempfile.mkstemp(prefix='.usd-stage-', suffix=Path(path).suffix, dir=os.path.dirname(path))
+        os.close(handle)
+        try:
+            if not layer.Export(temporary):
+                raise RuntimeError('USD export failed')
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
         return path
+
+    def publish_portable(self, directory):
+        """Flatten current composition and copy file dependencies into a new folder.
+
+        Reject unresolved/custom-resolver/package-relative assets instead of silently
+        publishing a broken handoff. USDZ and resolver-managed assets can still be
+        saved through the normal composed-stage workflow.
+        """
+        directory = Path(directory).absolute()
+        if directory.exists():
+            raise ValueError('Choose a new publish folder; existing folders are never overwritten')
+        if self.stage.GetCompositionErrors():
+            raise ValueError('Resolve composition errors before publishing')
+        layer = self.stage.Flatten()
+        directory.parent.mkdir(parents=True, exist_ok=True)
+        temp = Path(tempfile.mkdtemp(prefix='.usd-publish-', dir=directory.parent))
+        try:
+            def collect(asset):
+                if not asset:
+                    return asset
+                if '[' in asset or '://' in asset:
+                    raise ValueError('Portable publish needs local unpacked assets: ' + asset)
+                pattern = asset.replace('<UDIM>', '[0-9][0-9][0-9][0-9]')
+                files = sorted(glob.glob(pattern)) if '<UDIM>' in asset else [asset]
+                if not files or any(not os.path.isfile(f) for f in files):
+                    raise ValueError('Missing publish dependency: ' + asset)
+                key = hashlib.sha256(asset.encode()).hexdigest()[:12]
+                target = temp / 'assets' / key
+                target.mkdir(parents=True, exist_ok=True)
+                for file in files:
+                    shutil.copy2(file, target / Path(file).name)
+                return 'assets/' + key + '/' + Path(asset).name
+            UsdUtils.ModifyAssetPaths(layer, collect)
+            output = temp / 'stage.usda'
+            if not layer.Export(str(output)):
+                raise RuntimeError('Could not write portable stage')
+            reopened = Usd.Stage.Open(str(output))
+            _, _, missing = UsdUtils.ComputeAllDependencies(str(output))
+            if reopened.GetCompositionErrors() or missing:
+                raise ValueError('Published stage has unresolved dependencies: ' + str(missing))
+            os.rename(temp, directory)
+            return str(directory / 'stage.usda')
+        finally:
+            if temp.exists():
+                shutil.rmtree(temp)
 
     def inspect(self, path, frame=None):
         p = self.prim(path)
