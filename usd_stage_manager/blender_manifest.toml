@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "usd_stage_manager"
+version = "2.2.0"
+name = "USD Stage Manager"
+tagline = "Browse and edit USD stages with a Solaris-inspired scene graph"
+maintainer = "SMUELDigital"
+type = "add-on"
+website = "https://github.com/SMUELDigital/BlenderAddon-USD-Asset-Manager"
+tags = ["Import-Export", "Pipeline"]
+blender_version_min = "5.2.0"
+license = ["SPDX:Apache-2.0"]
+
+[permissions]
+files = "Read USD assets; save stages, exports and viewport caches"

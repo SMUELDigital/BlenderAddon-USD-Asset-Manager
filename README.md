@@ -26,27 +26,25 @@
 
 ---
 
-# BlenderAddon USD Asset Manager
+# USD Stage Manager 2.2.0 — Blender 5.2
 
-*Vision* 
+Solaris-inspired USD prim tree, non-destructive working layer, sublayers,
+references/payloads, variants and prim inspection, with a embedded Blender
+stage pane and explicit viewport preview.
 
-This addon should help to get a similar interface and pipeline to the Houdini Solaris. The goal is to get a proper import/export function and have a usd editor for adjusting the hierachy. 
+- Install the packaged extension ZIP from **Preferences → Add-ons → Install from Disk**.
+- Open **3D View → N → USD Stage → Open Embedded USD Stage**.
+- [Full installation guide, workflow and limitations](usd_stage_manager/README.md)
+- [Add-on source](usd_stage_manager/)
+- [Functional tests](tests/)
 
-*Present*
+Tested with Blender **5.2.2 LTS on Linux** and its bundled OpenUSD **26.3**.
+macOS and Windows have not been tested yet. This is a native panel-based
+stage editor; it does not include Hydra, LOP nodes or automatic two-way sync.
 
-At the moment, the addon works with setup the USD Stage Structure inside Blender 4.2 LTS as you might know in SideFX Houdini. Please be aware that there are some known issues indicated with every released version.
+Disable the old USD Layers Panel before enabling this rewrite. Legacy V1–V5
+scripts remain in `Scripts/` for reference.
 
-*Help/Colab*
-
-Please feel free to contribute your ideas/functions as well with reaching out. 
-Many thanks
-
-
-
-*Installation Blender 4.2 LTS*
-
-1.) Download the zip file from the Github repository into your addons library. Open Blender and proceed with the normal addon installation from disc. If the name of the addon does not appear, try searching for it by name and activate it if it is not already activated by Blender.
-
-2.) The panel is located in the Collection Properties under the Exporters tab. Assemble your scene first, for the last steps make a full copy of your scene, change the name of the scene (root empty takes the same name automatically) and press the button Create USD Layer for the USD Stage Setup. 
-
-3.) Then go to the Exporters tab where the addon has already created the USD exporter. For the first time you will need to select a preset for your final USD export settings. After the first time, you can select it manually from the drop-down menu to save some time. In the future this should be integrated and set automatically for you.
+Version 2.2.0 adds preview-safe scene export, export-to-stage display, official
+OpenUSD validation, relative-path saves, portable folder publishing and a
+wide-pane layout with a scrollable attribute inspector.
